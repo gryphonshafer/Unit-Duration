@@ -4,7 +4,7 @@ Unit::Duration - Work-time unit duration conversion and canonicalization
 
 # VERSION
 
-version 1.0
+version 1.01
 
 [![test](https://github.com/gryphonshafer/Unit-Duration/workflows/test/badge.svg)](https://github.com/gryphonshafer/Unit-Duration/actions?query=workflow%3Atest)
 [![codecov](https://codecov.io/gh/gryphonshafer/Unit-Duration/graph/badge.svg)](https://codecov.io/gh/gryphonshafer/Unit-Duration)
@@ -18,8 +18,8 @@ version 1.0
     my $x = $ud->canonicalize('4d 6h 4d 3h');
     # $x eq '8 days, 9 hrs'
 
-    my $y = $ud->canonicalize('4d 6h 4d 3h', { compress => 1 } );
-    # $y eq '1 week, 2 days, 1 hrs'
+    my $y = $ud->canonicalize( '4d 6h 4d 3h', { compress => 1 } );
+    # $y eq '1 wk, 4 days, 1 hr'
 
     my $z = $ud->canonicalize(
         '4d 6h 4d 3h',
@@ -31,10 +31,10 @@ version 1.0
             compress    => 1,
         },
     );
-    # $z eq '1w 2d 1h'
+    # $z eq '1w 4d 1h'
 
     my $hours = $ud->sum_as( hours => '2 days -6h' );
-    # $hours == 42
+    # $hours == 10
 
     my $ud_fully_described_with_defaults = Unit::Duration->new(
         name  => 'default',
@@ -75,9 +75,6 @@ version 1.0
         ],
     );
 
-    $ud->verify_table($canonical_table_string)    or die;
-    $ud->verify_table($canonical_table_structure) or die;
-
     my $duration_string = $ud->canonicalize(
         '3d 6h 1d 2h',
         {
@@ -89,6 +86,8 @@ version 1.0
         },
         'default', # table name or $table string or table structure
     );
+
+    my $hours_by_table = $ud->sum_as( hours => '2 days -6h', 'default' );
 
 # DESCRIPTION
 
@@ -185,7 +184,7 @@ It can optionally can accept settings overrides in a hashref. See
 ["SETTINGS"](#settings) below.
 
     my $y = $ud->canonicalize('4d 6h 4d 3h', { compress => 1 } );
-    # $y eq '1 week, 2 days, 1 hrs'
+    # $y eq '1 wk, 4 days, 1 hr'
 
     my $z = $ud->canonicalize(
         '4d 6h 4d 3h',
@@ -196,7 +195,7 @@ It can optionally can accept settings overrides in a hashref. See
             extra_space => ' ',
         },
     );
-    # $z eq '1w 2d 1h'
+    # $z eq '1w 4d 1h'
 
 It can also optionally be provided a table by name or as a string or data
 structure.
@@ -219,7 +218,7 @@ Thie method accepts a unit label and a duration string. It will return a number
 representing the value of the duration as the unit.
 
     my $hours = $ud->sum_as( hours => '2 days -6h' );
-    # $hours == 42
+    # $hours == 10
 
 It can also optionally be provided a table by name or as a string or data
 structure.
@@ -264,11 +263,6 @@ into `set_table` and other methods if desired.
 This method returns a table as a data structure: an arrayref of hashrefs.
 
     my $canonical_table_structure = $ud->get_table_structure('default');
-
-## verify\_table
-
-This method will accept a table either as a string or data structure and will
-return a true or false (1 or 0) based on whether the table is considered valid.
 
 # SETTINGS
 

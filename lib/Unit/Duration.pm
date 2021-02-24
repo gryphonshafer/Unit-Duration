@@ -4,8 +4,319 @@ package Unit::Duration;
 use 5.008;
 use strict;
 use warnings;
+use Carp 'croak';
 
 # VERSION
+
+my $duration_element_re = qr/(?<expr>[-+*\/\d]+)\s*(?<unit>[A-z]+)\s*/;
+
+sub new {
+    my ( $self, %params ) = @_;
+    my $params = {%params};
+
+    my $name  = delete $params->{name};
+    my $table = delete $params->{table};
+
+    croak('must provide both "name" and "table" or neither to new()')
+        if ( $name and not $table or $table and not $name );
+
+    $params->{intra_space} //= ' ';
+    $params->{extra_space} //= ', ';
+    $params->{pluralize}   //= 1;
+    $params->{unit_type}   //= 'short';
+    $params->{compress}    //= 0;
+
+    $self = bless( $params, $self );
+
+    $self->set_table( default => q{
+        y | yr  | year    = 4 qtrs
+        q | qtr | quarter = 3 mons
+        o | mon | month   = 4 wks
+        w | wk  | week    = 5 days
+        d | day           = 8 hrs
+        h | hr  | hour    = 60 mins
+        m | min | minute  = 60 secs
+        s | sec | second
+    } );
+
+    $self->set_table( $name, $table ) if ( $name and $table );
+
+    return $self;
+}
+
+sub set_table {
+    my ( $self, $name, $table ) = @_;
+    croak('no name provided to set_table()') unless ($name);
+    $self->_parse_table( $name, $table );
+    return $self;
+}
+
+sub get_table_string {
+    my ( $self, $name ) = @_;
+    croak('no name provided to get_table_string()') unless ($name);
+    return $self->{_tables}{$name}{string};
+}
+
+sub get_table_structure {
+    my ( $self, $name ) = @_;
+    croak('no name provided to get_table_structure()') unless ($name);
+    return $self->{_tables}{$name}{structure};
+}
+
+sub canonicalize {
+    my ( $self, $duration, $settings, $table ) = @_;
+
+    $settings->{compress} //= $self->{compress};
+
+    my $units = $self->_get_units_for_table($table);
+    my $duration_elements = $self->_merge_duration_elements( $self->_parse_duration( $duration, $units ) );
+
+    if ( $settings->{compress} and not $settings->{_as} ) {
+        $duration_elements = $self->_compress_duration_elements( $duration_elements, $units );
+    }
+    elsif ( $settings->{_as} ) {
+        return $self->_total_duration_as( $duration_elements, $units, $settings->{_as} );
+    }
+
+    return $self->_render_duration( $duration_elements, $settings );
+}
+
+sub sum_as {
+    my ( $self, $unit_name, $duration, $table ) = @_;
+    return $self->canonicalize( $duration, { _as => $unit_name }, $table );
+}
+
+sub _parse_table {
+    my ( $self, $name, $table ) = @_;
+    croak('no table data provided to set_table()') unless ($table);
+
+    my $units = ( ref $table ) ? [ map { {%$_} } @$table ] : do {
+        $table =~ s/#.*//g;
+        $table =~ s/(?:^\s+|\s+$)//g;
+        $table =~ s/\v+/\n/g;
+        $table =~ s/\h+//g;
+        $table =~ s/[^\-\+\*\/\dA-z\n,;]+/\|/g;
+
+        [ map {
+            my @parts = split(/\|/);
+            my $unit;
+
+            my @elements = grep { /$duration_element_re/ } @parts;
+            croak(qq{>1 duration element on line of duration table: "$_"}) if ( @elements > 1 );
+
+            $unit->{duration} = pop @parts if (@elements);
+            $unit->{letter}   = shift @parts;
+            $unit->{short}    = shift @parts;
+            $unit->{long}     = shift @parts // $unit->{short};
+
+            $unit;
+        } split( /\n/, $table ) ];
+    };
+
+    croak('not exactly 1 unit in duration table with no duration')
+        if ( scalar( grep { not $_->{duration} } @$units ) != 1 );
+
+    for my $unit (@$units) {
+        $unit->{long} //= $unit->{short};
+        my $match = '(' . join( '', map { $_ . '?' } split( '', $unit->{long} ) ) . ')';
+        $unit->{match} = qr/$match/i;
+    }
+
+    $_->{duration} = $self->_parse_duration( $_->{duration}, $units )
+        for ( grep { $_->{duration} } @$units );
+
+    eval {
+        local $SIG{__WARN__} = sub { die @_ };
+
+        my $flatten;
+        $flatten = sub {
+            for my $unit (@_) {
+                $flatten->(@_) if ( @_ = map { $_->{unit} } @{ $unit->{duration} || [] } );
+                unless ( $unit->{amount} ) {
+                    my %amount;
+                    $amount{ $_->{unit}{long} } += $_->{int} * ( $_->{unit}{amount} // 1 )
+                        for ( @{ $unit->{duration} || [] } );
+                    my ($amount) = map { $amount{$_} } keys %amount;
+                    $unit->{amount} += $amount if ($amount);
+                    $unit->{amount} //= 1;
+                }
+            }
+        };
+        $flatten->(@$units);
+    };
+    if ($@) {
+        croak('unable to properly interpret duration table');
+    }
+
+    $units = [ sort { $b->{amount} <=> $a->{amount} } @$units ];
+
+    my $structure = [
+        map {
+            my $unit = {
+                letter => $_->{letter},
+                short  => $_->{short},
+                long   => $_->{long},
+            };
+
+            delete $unit->{long} if ( $unit->{long} eq $unit->{short} );
+
+            $unit->{duration} = join(
+                ' ', map { $_->{int} . ' ' . $_->{unit}{short} } @{ $_->{duration} }
+            ) if ( $_->{duration} );
+
+            $unit;
+        } @$units
+    ];
+
+    my $string = join( "\n", map {
+        my $unit = $_;
+        my $line = join( ' | ', grep { defined } map { $unit->{$_} } qw( letter short long ) );
+        $line .= ' = ' . $unit->{duration} if ( exists $unit->{duration} );
+        $line;
+    } @$structure );
+
+    $self->{_tables}{$name} = {
+        structure => $structure,
+        string    => $string,
+        units     => $units,
+    } if ($name);
+
+    return $units;
+}
+
+sub _parse_duration {
+    my ( $self, $duration, $units ) = @_;
+
+    $duration =~ s/(\d+)\s*:\s*(\d+)(?:\s*:\s*(\d+))?/
+        $1 . 'h' . $2 . 'm' . ( ($3) ? $3 . 's' : '' )
+    /ge;
+
+    $duration =~ s/[^\-\+\*\/\dA-z]+//g;
+    croak('unable to parse duration string') unless ( $duration =~ /^\s*(?:$duration_element_re)+$/ );
+
+    my @elements;
+    while ( $duration =~ /$duration_element_re/g ) {
+        my $element = { map { $_ => $+{$_} } qw( expr unit ) };
+
+        $element->{int}  = eval delete $element->{expr};
+        $element->{unit} = $self->_match_unit_type( $element->{unit}, $units );
+
+        push( @elements, $element );
+    }
+
+    return \@elements;
+}
+
+sub _match_unit_type {
+    my ( $self, $unit_name, $units ) = @_;
+
+    unless ($unit_name) {
+        my ($unit) = grep { not $_->{duration} } @$units;
+        return $unit;
+    }
+
+    $unit_name =~ s/s+$//i;
+    my ($matched_unit) = map { $_->[0] } sort { $b->[1] <=> $a->[1] } map {
+        [
+            $_,
+            (
+                $unit_name eq $_->{letter} or
+                $unit_name eq $_->{short} or
+                $unit_name eq $_->{long}
+            ) ? 100 : do {
+                $unit_name =~ $_->{match};
+                length $1;
+            },
+        ];
+    } @$units;
+    return $matched_unit;
+}
+
+sub _get_units_for_table {
+    my ( $self, $table ) = @_;
+
+    if ( not defined $table ) {
+        if ( exists $self->{_tables}{default} ) {
+            return $self->{_tables}{default}{units};
+        }
+        else {
+            croak('failure due to default table not defined');
+        }
+    }
+    elsif ( exists $self->{_tables}{$table} ) {
+        return $self->{_tables}{$table}{units};
+    }
+    else {
+        return $self->_parse_table( undef, $table );
+    }
+}
+
+sub _merge_duration_elements {
+    my ( $self, $elements ) = @_;
+
+    my %elements;
+    for my $element (@$elements) {
+        $element->{int} += $elements{ $element->{unit}{long} }{int}
+            if ( exists $elements{ $element->{unit}{long} } );
+        $elements{ $element->{unit}{long} } = $element;
+    }
+
+    return [
+        sort { $b->{unit}{amount} <=> $a->{unit}{amount} }
+        map { $elements{$_} }
+        keys %elements
+    ];
+}
+
+sub _render_duration {
+    my ( $self, $duration_elements, $settings ) = @_;
+    $settings->{$_} //= $self->{$_} for ( qw( intra_space extra_space pluralize unit_type ) );
+
+    return join(
+        $settings->{extra_space},
+        map {
+            $_->{int}
+                . $settings->{intra_space}
+                . $_->{unit}{ $settings->{unit_type} }
+                . ( ( $settings->{pluralize} and $_->{int} != 1 ) ? 's' : '' )
+        } @$duration_elements
+    );
+}
+
+sub _compress_duration_elements {
+    my ( $self, $duration_elements, $units ) = @_;
+
+    my $total_seconds = $self->_total_duration_as( $duration_elements, $units );
+
+    my @compressed_elements;
+    for my $unit (@$units) {
+        my $count = int( $total_seconds / $unit->{amount} );
+        if ( $count >= 1 ) {
+            push(
+                @compressed_elements,
+                {
+                    int  => $count,
+                    unit => $unit,
+                },
+            );
+            $total_seconds -= $count * $unit->{amount};
+        }
+        last unless ($total_seconds);
+    }
+
+    return \@compressed_elements;
+}
+
+sub _total_duration_as {
+    my ( $self, $duration_elements, $units, $unit_type ) = @_;
+
+    my $total_seconds;
+    $total_seconds += $_ for ( map { $_->{int} * $_->{unit}{amount} } @$duration_elements );
+    return $total_seconds unless ($unit_type);
+
+    my $unit = $self->_match_unit_type( $unit_type, $units );
+    return $total_seconds / $unit->{amount};
+}
 
 1;
 __END__
@@ -28,8 +339,8 @@ __END__
     my $x = $ud->canonicalize('4d 6h 4d 3h');
     # $x eq '8 days, 9 hrs'
 
-    my $y = $ud->canonicalize('4d 6h 4d 3h', { compress => 1 } );
-    # $y eq '1 week, 2 days, 1 hrs'
+    my $y = $ud->canonicalize( '4d 6h 4d 3h', { compress => 1 } );
+    # $y eq '1 wk, 4 days, 1 hr'
 
     my $z = $ud->canonicalize(
         '4d 6h 4d 3h',
@@ -41,10 +352,10 @@ __END__
             compress    => 1,
         },
     );
-    # $z eq '1w 2d 1h'
+    # $z eq '1w 4d 1h'
 
     my $hours = $ud->sum_as( hours => '2 days -6h' );
-    # $hours == 42
+    # $hours == 10
 
     my $ud_fully_described_with_defaults = Unit::Duration->new(
         name  => 'default',
@@ -85,9 +396,6 @@ __END__
         ],
     );
 
-    $ud->verify_table($canonical_table_string)    or die;
-    $ud->verify_table($canonical_table_structure) or die;
-
     my $duration_string = $ud->canonicalize(
         '3d 6h 1d 2h',
         {
@@ -99,6 +407,8 @@ __END__
         },
         'default', # table name or $table string or table structure
     );
+
+    my $hours_by_table = $ud->sum_as( hours => '2 days -6h', 'default' );
 
 =head1 DESCRIPTION
 
@@ -195,7 +505,7 @@ It can optionally can accept settings overrides in a hashref. See
 L</"SETTINGS"> below.
 
     my $y = $ud->canonicalize('4d 6h 4d 3h', { compress => 1 } );
-    # $y eq '1 week, 2 days, 1 hrs'
+    # $y eq '1 wk, 4 days, 1 hr'
 
     my $z = $ud->canonicalize(
         '4d 6h 4d 3h',
@@ -206,7 +516,7 @@ L</"SETTINGS"> below.
             extra_space => ' ',
         },
     );
-    # $z eq '1w 2d 1h'
+    # $z eq '1w 4d 1h'
 
 It can also optionally be provided a table by name or as a string or data
 structure.
@@ -229,7 +539,7 @@ Thie method accepts a unit label and a duration string. It will return a number
 representing the value of the duration as the unit.
 
     my $hours = $ud->sum_as( hours => '2 days -6h' );
-    # $hours == 42
+    # $hours == 10
 
 It can also optionally be provided a table by name or as a string or data
 structure.
@@ -274,11 +584,6 @@ into C<set_table> and other methods if desired.
 This method returns a table as a data structure: an arrayref of hashrefs.
 
     my $canonical_table_structure = $ud->get_table_structure('default');
-
-=head2 verify_table
-
-This method will accept a table either as a string or data structure and will
-return a true or false (1 or 0) based on whether the table is considered valid.
 
 =head1 SETTINGS
 
