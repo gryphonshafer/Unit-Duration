@@ -405,7 +405,7 @@ __END__
             unit_type   => 'short',
             compress    => 0,
         },
-        'default', # table name or $table string or table structure
+        'default', # table name or table string or table structure
     );
 
     my $hours_by_table = $ud->sum_as( hours => '2 days -6h', 'default' );
@@ -450,9 +450,9 @@ define the unit's duration relative to some lower unit. Ultimately, there needs
 to be 1 and only 1 unit that is the "base" unit. In the default table, this is
 "second".
 
-For tables in string form, the separation of columns can be done using any non-
-digit, non-letter character other than commas and semicolons. All spacing is
-ignored. Tables in data form are an arrayref of hashrefs where each hashref
+For tables in string form, the separation of columns can be done using any
+non-digit, non-letter character other than commas and semicolons. All spacing
+is ignored. Tables in data form are an arrayref of hashrefs where each hashref
 contains C<letter>, C<short>, optionally a C<long>, and a C<duration>.
 
     {
@@ -504,7 +504,7 @@ string based on the settings and table used.
 It can optionally can accept settings overrides in a hashref. See
 L</"SETTINGS"> below.
 
-    my $y = $ud->canonicalize('4d 6h 4d 3h', { compress => 1 } );
+    my $y = $ud->canonicalize( '4d 6h 4d 3h', { compress => 1 } );
     # $y eq '1 wk, 4 days, 1 hr'
 
     my $z = $ud->canonicalize(
@@ -530,7 +530,7 @@ structure.
             unit_type   => 'short',
             compress    => 0,
         },
-        'default', # table name or $table string or table structure
+        'default', # table name or table string or table structure
     );
 
 =head2 sum_as
@@ -621,7 +621,7 @@ example:
 By setting C<compress> to a true value, C<canonicalize> will shift values
 between units. For example:
 
-    my $y = $ud->canonicalize('4d 6h 4d 3h', { compress => 1 } );
+    my $y = $ud->canonicalize( '4d 6h 4d 3h', { compress => 1 } );
     # $y eq '1 week, 2 days, 1 hrs'
 
 =head1 SEE ALSO
