@@ -187,6 +187,7 @@ sub _parse_table {
 sub _parse_duration {
     my ( $self, $duration, $units ) = @_;
 
+    $duration //= '';
     $duration =~ s/(\d+)\s*:\s*(\d+)(?:\s*:\s*(\d+))?/
         $1 . 'h' . $2 . 'm' . ( ($3) ? $3 . 's' : '' )
     /ge;

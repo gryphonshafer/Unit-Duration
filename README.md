@@ -4,7 +4,7 @@ Unit::Duration - Work-time unit duration conversion and canonicalization
 
 # VERSION
 
-version 1.01
+version 1.02
 
 [![test](https://github.com/gryphonshafer/Unit-Duration/workflows/test/badge.svg)](https://github.com/gryphonshafer/Unit-Duration/actions?query=workflow%3Atest)
 [![codecov](https://codecov.io/gh/gryphonshafer/Unit-Duration/graph/badge.svg)](https://codecov.io/gh/gryphonshafer/Unit-Duration)
@@ -84,7 +84,7 @@ version 1.01
             unit_type   => 'short',
             compress    => 0,
         },
-        'default', # table name or $table string or table structure
+        'default', # table name or table string or table structure
     );
 
     my $hours_by_table = $ud->sum_as( hours => '2 days -6h', 'default' );
@@ -129,9 +129,9 @@ define the unit's duration relative to some lower unit. Ultimately, there needs
 to be 1 and only 1 unit that is the "base" unit. In the default table, this is
 "second".
 
-For tables in string form, the separation of columns can be done using any non-
-digit, non-letter character other than commas and semicolons. All spacing is
-ignored. Tables in data form are an arrayref of hashrefs where each hashref
+For tables in string form, the separation of columns can be done using any
+non-digit, non-letter character other than commas and semicolons. All spacing
+is ignored. Tables in data form are an arrayref of hashrefs where each hashref
 contains `letter`, `short`, optionally a `long`, and a `duration`.
 
     {
@@ -183,7 +183,7 @@ string based on the settings and table used.
 It can optionally can accept settings overrides in a hashref. See
 ["SETTINGS"](#settings) below.
 
-    my $y = $ud->canonicalize('4d 6h 4d 3h', { compress => 1 } );
+    my $y = $ud->canonicalize( '4d 6h 4d 3h', { compress => 1 } );
     # $y eq '1 wk, 4 days, 1 hr'
 
     my $z = $ud->canonicalize(
@@ -209,7 +209,7 @@ structure.
             unit_type   => 'short',
             compress    => 0,
         },
-        'default', # table name or $table string or table structure
+        'default', # table name or table string or table structure
     );
 
 ## sum\_as
@@ -300,7 +300,7 @@ example:
 By setting `compress` to a true value, `canonicalize` will shift values
 between units. For example:
 
-    my $y = $ud->canonicalize('4d 6h 4d 3h', { compress => 1 } );
+    my $y = $ud->canonicalize( '4d 6h 4d 3h', { compress => 1 } );
     # $y eq '1 week, 2 days, 1 hrs'
 
 # SEE ALSO
