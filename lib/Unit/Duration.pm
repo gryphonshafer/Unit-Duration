@@ -1,7 +1,7 @@
 package Unit::Duration;
 # ABSTRACT: Work-time unit duration conversion and canonicalization
 
-use 5.008;
+use 5.010;
 use strict;
 use warnings;
 use Carp 'croak';
